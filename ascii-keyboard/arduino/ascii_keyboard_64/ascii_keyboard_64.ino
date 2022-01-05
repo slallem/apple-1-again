@@ -49,11 +49,11 @@ int KBD_READY = A4; // Input (from device)
 unsigned long kbd[8][8] = {0};
 unsigned long kbd_rpt[8][8] = {0};
 
+bool capsLocked = false; 
+
 // Character assignation to keys
 // 8 rows of 8 keys
 // 3 values for each key: "Normal", "w/Shift", "w/Ctrl"
-
-bool capsLocked = false; // caps lock flag
 
 byte charmap[8][8][3] = {
   {
@@ -175,58 +175,32 @@ void pia_send(int c) {
   //Make sure STROBE signal is off 
   digitalWrite(KBD_STROBE, LOW);
 
-  //Character restrictions (mandatory?)
-  //c = map_to_ascii(c);
+  writeOutputPort(c /*| 128*/); // force 8th bit HIGH ?
 
-  // Not sure if all 0-127 ASCII codes are accepted by Apple-1
-  //if (c < 96) {
-    writeOutputPort(c /*| 128*/); // force 8th bit HIGH ?
+  digitalWrite(KBD_STROBE, HIGH);
+  
+  byte timeout;
 
-    digitalWrite(KBD_STROBE, HIGH);
-    
-    byte timeout;
+  // Wait for KBD_READY to go HIGH 
+  timeout = KBD_SEND_TIMEOUT;
+  while(digitalRead(KBD_READY) != HIGH) {
+    delay(1);
+    if (timeout == 0) break;
+    else timeout--;
+  }
+  digitalWrite(KBD_STROBE, LOW);
 
-    // Wait for KBD_READY (CA2) to go HIGH 
-    timeout = KBD_SEND_TIMEOUT;
-    while(digitalRead(KBD_READY) != HIGH) {
-      delay(1);
-      if (timeout == 0) break;
-      else timeout--;
-    }
-    digitalWrite(KBD_STROBE, LOW);
+  // Wait for KBD_READY to go LOW 
+  timeout = KBD_SEND_TIMEOUT;
+  while(digitalRead(KBD_READY) != LOW) {
+    delay(1);
+    if (timeout == 0) break;
+    else timeout--;
+  }
 
-    // Wait for KBD_READY (CA2) to go LOW 
-    timeout = KBD_SEND_TIMEOUT;
-    while(digitalRead(KBD_READY) != LOW) {
-      delay(1);
-      if (timeout == 0) break;
-      else timeout--;
-    }
-
-    // Set Strobe LOW afterwards (?)
-    digitalWrite(KBD_STROBE, LOW); //???
+  // Set Strobe LOW afterwards (?)
+  digitalWrite(KBD_STROBE, LOW); 
    
-  //}
-  
-}
-
-char map_to_ascii(int c) {
-  /* Convert ESC key */
-  if (c == 203) {
-    c = 27;
-  }
-
-  /* Ctrl A-Z */
-  if (c > 576 && c < 603) {
-    c -= 576;
-  }
-
-  /* Convert lowercase keys to UPPERCASE */
-  if (c > 96 && c < 123) {
-    c -= 32;
-  }
-  
-  return c;
 }
 
 void sendChar(char c) {
@@ -259,10 +233,7 @@ void loop() {
     //no longer needs to listen for information
     digitalWrite(latchPin, HIGH);
 
-    //delay(1);
-
     //Read column states
-    
     byte val = ~((digitalRead(inPin[0])) 
       | (digitalRead(inPin[1]) << 1)
       | (digitalRead(inPin[2]) << 2)
@@ -272,12 +243,12 @@ void loop() {
       | (digitalRead(inPin[6]) << 6)
       | (digitalRead(inPin[7]) << 7));
 
-
+      // Calculates modifiers states (from previous key presses)
       bool bShift = (kbd[6][0] or kbd[7][5]) xor capsLocked; // left or right shift -xor- capslocked (revert shift if over capslock)
       bool bCtrl = kbd[7][6]; // CTRL key
       byte idx = bCtrl ? 2 : (bShift ? 1 : 0);
 
-      int now = millis(); // millis() overflows every 50 days, so no risk for our use
+      unsigned long now = millis(); // millis() overflows every 50 days, so no risk for our use
       for (int i=0; i<8; i++) {
         if ((val & (1 << i)) != 0) {
           nbDown++;
