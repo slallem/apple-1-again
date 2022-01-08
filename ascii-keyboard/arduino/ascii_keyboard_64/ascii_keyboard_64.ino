@@ -44,6 +44,7 @@ int KBD_READY = A4; // Input (from device)
 #define AUTOREPEAT_INITIAL_TIME_MS  750 // Initial time before repeating chars (if key pressed for a long time)
 #define AUTOREPEAT_TIME_MS           40 // Time between repeated chars (if key pressed for a long time)
 
+#define UPPERCASE_ONLY true // Apple I only accepts capital letters
 
 // Keyboard pressed states (we use unsigned long to store full elapsed millis)
 unsigned long kbd[8][8] = {0};
@@ -71,7 +72,7 @@ byte charmap[8][8][3] = {
     {'0', ')'},
     {'-', '_', 0x1F},
     {'=', '+'},
-    {0x08, 0x08, 0x7F}, // BACKSPACE (ctrl = DEL)
+    {'_', 0x08, 0x7F}, // _ is an alternative for backspace in Apple I Basic, shift = real BACKSPACE, ctrl = DEL (not sure to be used)
     {'?', '?'}, // F1
     {'?', '?'}, // F2
     {'?', '?'}  // F3
@@ -170,12 +171,36 @@ void writeOutputPort(char c) {
   digitalWrite(outLatch, HIGH);
 }
 
-void pia_send(int c) {
+char map_to_ascii(int c) {
+  /* Convert ESC key */
+  if (c == 203) {
+    c = 27;
+  }
+
+  /* Ctrl A-Z */
+  if (c > 576 && c < 603) {
+    c -= 576;
+  }
+
+  /* Convert lowercase keys to UPPERCASE */
+  if (UPPERCASE_ONLY) {
+    if (c > 96 && c < 123) {
+      c -= 32;
+    }
+  }
+  
+  return c;
+}
+
+void pia_send(int ic) {
 
   //Make sure STROBE signal is off 
   digitalWrite(KBD_STROBE, LOW);
 
-  writeOutputPort(c /*| 128*/); // force 8th bit HIGH ?
+  // Calculate right ASCII char to send
+  char c = map_to_ascii(ic);
+
+  writeOutputPort(c | 128); // force 8th bit HIGH (RC6502 SerialIO board, as original Apple 1 kbd connector have only 7 data bits)
 
   digitalWrite(KBD_STROBE, HIGH);
   
@@ -207,7 +232,7 @@ void sendChar(char c) {
   
   //Send ASCII value to output port (this is an ASCII keyboard, finally!)
   pia_send(c);
-  
+
   //Send via serial (debug)
   if (c == 0x0D) {
     Serial.println();
@@ -248,7 +273,7 @@ void loop() {
       bool bCtrl = kbd[7][6]; // CTRL key
       byte idx = bCtrl ? 2 : (bShift ? 1 : 0);
 
-      unsigned long now = millis(); // millis() overflows every 50 days, so no risk for our use
+      unsigned long now = millis(); // millis() overflows every 50 days, so no big risk for our use
       for (int i=0; i<8; i++) {
         if ((val & (1 << i)) != 0) {
           nbDown++;
